@@ -1,5 +1,7 @@
-using DataFrames, DifferentialEquations, Plots, CSV, Random, Lux, Optimization, OptimizationOptimisers, Zygote
-using ComponentArrays, SciMLSensitivity, JLD2, StaticArrays, ForwardDiff
+using DataFrames, DifferentialEquations, Plots, CSV, Random, Lux, Optimization
+using OptimizationOptimisers: Adam
+using OptimizationOptimJL: LBFGS
+using Zygote, ComponentArrays, SciMLSensitivity, JLD2, StaticArrays, ForwardDiff
 data_loaded = CSV.read("C:/Ude_HH_model/ude_models/synthetic_data.csv", DataFrame)
 # all constants
 true_V = Float32.(data_loaded[!, "V"])
@@ -41,9 +43,9 @@ nn = Chain(Dense(1 => 32),
     Dense(32 => 1, sigmoid))
 ps, st = Lux.setup(rng, nn)
 
-function ude_hh!(du, u_0, p, t)
+function ude_hh!(du, u, p, t)
 
-    V, m, h, n = u_0
+    V, m, h, n = u
     ps = p
 
     pred_n, _ = nn(@SVector[n], ps, st)
@@ -68,12 +70,15 @@ u_0 = [-65.0f0, 0.05f0, 0.6f0, 0.317f0]
 tspan = (0.0f0, 30.0f0)
 p = [g_na, g_k, g_l, c_m, I_ext, E_na, E_k, E_l, ps, st]
 prob = ODEProblem(ude_hh!, u_0, tspan, p)
-
+t_steps
 function loss_function(ps, p)
 
 
     prob = ODEProblem(ude_hh!, u_0, tspan, ps)
-    sol = solve(prob, Tsit5(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
+    sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
+    if sol.retcode != SciMLBase.ReturnCode.Success || length(sol.t) != length(true_V)
+        return 1e5
+    end
     pred_V = sol[1, :]
     loss = sum(abs2, pred_V - true_V) / length(true_V)
     return loss
@@ -81,6 +86,7 @@ function loss_function(ps, p)
 end
 
 # Optimization
+size(true_V)
 
 # a callback function
 iter = 0
@@ -102,9 +108,24 @@ println(typeof(ps))
 net = ComponentArray(ps)
 opt_prob = OptimizationProblem(opt, net)
 
-println("Lets start the trainig ====================================== ")
-solve(opt_prob, Adam(0.05), callback=callback, maxiters=10)
+println("Lets start the training ====================================== ")
 
+# 1st optimization loop: Adam(0.05) -- 1500 iterations
+println("--- Phase 1: Adam(0.05) [1500 maxiters] ---")
+res1 = solve(opt_prob, Adam(0.01), callback=callback, maxiters=100)
 
+# 2nd optimization loop: Adam(0.01) -- 1000 iterations
+println("--- Phase 2: Adam(0.01) [1000 maxiters] ---")
+opt_prob2 = remake(opt_prob, u0=res1.u)
+res2 = solve(opt_prob2, Adam(0.001), callback=callback, maxiters=100)
+
+# 3rd optimization loop: LBFGS -- 500 iterations
+println("--- Phase 3: LBFGS [500 maxiters] ---")
+opt_prob3 = remake(opt_prob, u0=res2.u)
+res3 = solve(opt_prob3, LBFGS(), callback=callback, maxiters=500)
+
+# Save final parameters
+jldsave("C:/Ude_HH_model/ude_models/leaning_parameter.jld2"; p=res3.u)
+println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter.jld2")
 # --------------------------------------------
 
