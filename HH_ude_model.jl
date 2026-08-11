@@ -128,4 +128,13 @@ res3 = solve(opt_prob3, LBFGS(), callback=callback, maxiters=1000)
 jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res3.u)
 println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
 # --------------------------------------------
+pn = load("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2", "p")
+prob = ODEProblem(ude_hh!, u_0, tspan, pk)
+sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
+t = sol.t
+V = sol[1, :]
+
+p = plot(title="UDE model Vs HH_model", t, V, xlabel="ude_time", ylabel="ude_volatage", label="ude_model", lw=3, lc=:blue)
+plot!(t_steps, true_V, label="HH_model", lw=3, lc=:red, ls=:dashdot)
+# ----
 
