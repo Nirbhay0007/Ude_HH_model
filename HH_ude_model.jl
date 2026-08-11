@@ -94,7 +94,7 @@ iter = 0
 function callback(state, l)
     if state.iter % 5 == 0
         println("current iteration = $(state.iter)  | current_loss = $(l)")
-        if state.iter % 250 == 0
+        if state.iter % 10 == 0
             jldsave("C:/Ude_HH_model/ude_models/leaning_parameter.jld2"; p=state.u)
         end
     end
@@ -112,20 +112,20 @@ println("Lets start the training ====================================== ")
 
 # 1st optimization loop: Adam(0.05) -- 1500 iterations
 println("--- Phase 1: Adam(0.05) [1500 maxiters] ---")
-res1 = solve(opt_prob, Adam(0.01), callback=callback, maxiters=100)
+res1 = solve(opt_prob, Adam(0.01), callback=callback, maxiters=500)
 
 # 2nd optimization loop: Adam(0.01) -- 1000 iterations
 println("--- Phase 2: Adam(0.01) [1000 maxiters] ---")
 opt_prob2 = remake(opt_prob, u0=res1.u)
-res2 = solve(opt_prob2, Adam(0.001), callback=callback, maxiters=100)
+res2 = solve(opt_prob2, Adam(0.001), callback=callback, maxiters=1000)
 
 # 3rd optimization loop: LBFGS -- 500 iterations
 println("--- Phase 3: LBFGS [500 maxiters] ---")
 opt_prob3 = remake(opt_prob, u0=res2.u)
-res3 = solve(opt_prob3, LBFGS(), callback=callback, maxiters=500)
+res3 = solve(opt_prob3, LBFGS(), callback=callback, maxiters=1000)
 
 # Save final parameters
-jldsave("C:/Ude_HH_model/ude_models/leaning_parameter.jld2"; p=res3.u)
-println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter.jld2")
+jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res3.u)
+println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
 # --------------------------------------------
 
