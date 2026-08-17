@@ -35,6 +35,11 @@ beta_h(V) = 1.0f0 / (1.0f0 + exp(-(V + 35.0f0) / 10.0f0))
 
 
 
+# Lets add noise in the Original to make the model to capture all the vaience
+
+
+
+
 rng = Random.seed!(42)
 
 
@@ -129,7 +134,7 @@ jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res3.u)
 println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
 # --------------------------------------------
 pn = load("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2", "p")
-prob = ODEProblem(ude_hh!, u_0, tspan, pk)
+prob = ODEProblem(ude_hh!, u_0, tspan, pn)
 sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
 t = sol.t
 V = sol[1, :]

@@ -1,12 +1,21 @@
 
 # %%
 # all important imports 
-using JLD2, DataFrames, CSV
-
+using JLD2, DataFrames, CSV, StaticArrays, SciMLSensitivity, Lux, LinearAlgebra, DifferentialEquations, Plots
 
 true_data = data_loaded = CSV.read("C:/Ude_HH_model/ude_models/synthetic_data.csv", DataFrame)
 y = Float32.(true_data[!, "n"])
+t_steps = Float32.(true_data[!, "Time"])
 
+
+
+rng = Random.seed!(42)
+
+
+nn = Chain(Dense(1 => 32),
+    Dense(32 => 32, tanh),
+    Dense(32 => 1, sigmoid))
+ps, st = Lux.setup(rng, nn)
 
 
 function ude_hh!(du, u, p, t)
@@ -35,7 +44,7 @@ u_0 = [-65.0f0, 0.05f0, 0.6f0, 0.317f0]
 tspan = (0.0f0, 30.0f0)
 
 pn = load("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2", "p")
-prob = ODEProblem(ude_hh!, u_0, tspan, pk)
+prob = ODEProblem(ude_hh!, u_0, tspan, pn)
 sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
 sol.t
 
@@ -67,5 +76,12 @@ point_l = length(x)
 size(ϕ)
 
 β = ϕ \ y
+for i in 1:basis_l
 
-print(β)
+    println(" ", round(β[i], digits=4), " *", " ", basis_names[i])
+end
+
+# Compute fitted curve
+y_fit = ϕ * β
+plot(t_steps, y, label="Original Data (y)", xlabel="Time", ylabel="n", lw=2)
+plot!(t_steps, y_fit, label="Fitted Model (y_fit)", lw=2, linestyle=:dash)
