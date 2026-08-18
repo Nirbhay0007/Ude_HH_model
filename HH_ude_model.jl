@@ -4,7 +4,11 @@ using OptimizationOptimJL: LBFGS
 using Zygote, ComponentArrays, SciMLSensitivity, JLD2, StaticArrays, ForwardDiff
 data_loaded = CSV.read("C:/Ude_HH_model/ude_models/synthetic_data.csv", DataFrame)
 # all constants
+true_n = Float32.(data_loaded[!, "n"])
 true_V = Float32.(data_loaded[!, "V"])
+
+true_m = Float32.(data_loaded[!, "m"])
+true_h = Float32.(data_loaded[!, "h"])
 t_steps = Float32.(data_loaded[!, "Time"])
 # all constants
 g_na = 120.0f0
@@ -15,6 +19,8 @@ I_ext = 10.0f0
 E_na = 50.0f0
 E_k = -77.0f0
 E_l = -54.4f0
+
+
 
 
 # rate_functions
@@ -34,19 +40,44 @@ alpha_h(V) = 0.07f0 * exp(-(V + 65.0f0) / 20.0f0)
 beta_h(V) = 1.0f0 / (1.0f0 + exp(-(V + 35.0f0) / 10.0f0))
 
 
-
-# Lets add noise in the Original to make the model to capture all the vaience
-
-
-
-
+using Statistics
 rng = Random.seed!(42)
+Random.seed!(42)
+noise_std_V = 1.5f0     # 1.5 mV noise (or 0.05f0 * std(true_V))
+noise_std_n = 0.005f0    # 2% gating probability noise
+noise_std_m = 0.05f0
+noise_std_h = 0.05f0
+noisy_V = true_V .+ noise_std_V.* randn(Float32, size(true_V))
+noisy_n= (true_n .+ noise_std_n .* randn(Float32, size(true_n)))
+
+noisy_m = (true_V .+ noise_std_m .* randn(Float32, size(true_m)))
+noisy_h = (true_V .+ noise_std_h .* randn(Float32, size(true_h)))
+
+noise_n  = clamp.(noisy_n,0.0f0 , 1.0f0)
+noise_m  = clamp.(noisy_m,0.0f0 , 1.0f0)
+noise_h  = clamp.(noisy_h,0.0f0 , 1.0f0)
+
+# ploing the noise vs ture data 
+
+v_plot = plot(t_steps,true_V,label = " ture_V")
+plot(v_plot,t_steps,noisy_V,seriestype=:scatter, markersize=2,label = "nosiy_V")
+
+n_plot = plot(t_steps,true_n,label = " ture_n")
+plot(n_plot,t_steps,noisy_n,seriestype=:scatter, markersize=2,label = "nosiy_n")
+
+m_plot = plot(t_steps,true_m,label = " ture_m")
+plot(m_plot,t_steps,noisy_m,seriestype=:scatter, markersize=2,label = "nosiy_m")
+
+h_plot = plot(t_steps,true_h,label = " ture_h")
+plot(h_plot,t_steps,noisy_h,seriestype=:scatter, markersize=2,label = "nosiy_h")
+
 
 
 nn = Chain(Dense(1 => 32),
     Dense(32 => 32, tanh),
     Dense(32 => 1, sigmoid))
-ps, st = Lux.setup(rng, nn)
+
+    ps, st = Lux.setup(rng, nn)
 
 function ude_hh!(du, u, p, t)
 
