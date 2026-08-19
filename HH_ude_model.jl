@@ -1,5 +1,13 @@
-using DataFrames, DifferentialEquations, Plots, CSV, Random, Lux, Optimization
-using OptimizationOptimisers: Adam
+
+println("Active Julia Threads: $(Threads.nthreads()) / $(Sys.CPU_THREADS)")
+using LinearAlgebra
+# Maximize multi-threading for matrix operations
+BLAS.set_num_threads(Sys.CPU_THREADS)
+# Print confirmation to verify full thread usage
+println("Active Julia Threads: $(Threads.nthreads()) / $(Sys.CPU_THREADS)")
+println("BLAS Threads: $(BLAS.get_num_threads())")
+using DataFrames, DifferentialEquations, OrdinaryDiffEq, Plots, CSV, Random, Lux, Optimization
+
 using OptimizationOptimJL: BFGS
 using Zygote, ComponentArrays, SciMLSensitivity, JLD2, StaticArrays, ForwardDiff, StaticArrays
 
@@ -66,6 +74,18 @@ noise_n = clamp.(noisy_n, 0.0f0, 1.0f0)
 noise_m = clamp.(noisy_m, 0.0f0, 1.0f0)
 noise_h = clamp.(noisy_h, 0.0f0, 1.0f0)
 
+# Create a DataFrame containing the noisy data
+noisy_df = DataFrame(
+    Time=t_steps,
+    V=noisy_V,
+    n=noise_n,
+    m=noise_m,
+    h=noise_h
+)
+
+# Save to CSV
+CSV.write("C:/Ude_HH_model/ude_models/noisy_data.csv", noisy_df)
+println("Noisy data successfully saved to C:/Ude_HH_model/ude_models/noisy_data.csv")
 
 
 
@@ -83,6 +103,12 @@ plot(m_plot, t_steps, noisy_m, seriestype=:scatter, markersize=2, label="nosiy_m
 h_plot = plot(t_steps, true_h, label=" ture_h")
 plot(h_plot, t_steps, noisy_h, seriestype=:scatter, markersize=2, label="nosiy_h")
 
+
+
+
+
+
+
 # Defing the neural network sturcture 
 nn = Chain(Dense(1 => 32),
     Dense(32 => 32, tanh),
@@ -97,8 +123,10 @@ ps, st = Lux.setup(rng, nn)
 function ude_hh(u, ps, t)
     V, m, h, n = u
     pred_n, _ = nn(SA[n], ps, st)
+    n_val = clamp(pred_n[1], 0.0f0, 1.0f0)
 
-    dV = (I_ext - g_na * m^3 * h * (V - E_na) - g_k * pred_n[1] * (V - E_k) - g_l * (V - E_l)) / c_m
+
+    dV = (I_ext - g_na * m^3 * h * (V - E_na) - g_k * n_val * (V - E_k) - g_l * (V - E_l)) / c_m
     dm = alpha_m(V) * (1.0f0 - m) - beta_m(V) * m
     dh = alpha_h(V) * (1.0f0 - h) - beta_h(V) * h
     dn = alpha_n(V) * (1.0f0 - n) - beta_n(V) * n
@@ -122,23 +150,28 @@ prob = ODEProblem(ude_hh, u_0, tspan, p)
 # definig the loss function
 
 function loss_function(ps, p)
-
-
     prob = ODEProblem(ude_hh, u_0, tspan, ps)
-    sol = solve(prob, AutoTsit5(Rosenbrock23()), reltol=1e-4, abstol=1e-4, saveat=t_steps, sensealg=ForwardDiffSensitivity())
-    if sol.retcode != SciMLBase.ReturnCode.Success || length(sol.t) != length(true_V)
-        return eltype(ps)(1e5)
-    end
-    pred_V = sol[1, :]
-    loss = sum(abs2, pred_V - true_V) / length(true_V)
-    return loss
+    sol = solve(
+        prob,
+        Rosenbrock23(),
+        reltol=1e-4,
+        abstol=1e-4,
+        saveat=t_steps,
+        sensealg=ForwardDiffSensitivity(),
+        force_dtmin=true
+    )
 
+    pred_V = sol[1, :]
+    return sum(abs2, pred_V - true_V) / length(true_V)
 end
+
+
+
 const loss_history = []
 const iter_history = []
 function callback(state, l)
 
-    push!(loss_history, Float32(1))
+    push!(loss_history, Float32(l))
     push!(iter_history, state.iter)
     if state.iter % 10 == 0
         println("current iteration = $(state.iter)  | current_loss = $(l)")
@@ -170,58 +203,18 @@ p_init = ComponentArray(saved_p)
 opt = OptimizationFunction(loss_function, AutoForwardDiff())
 opt_prob_resumed = OptimizationProblem(opt, p_init)
 
-
-
 println("--------------------- Resuming the trainig --------------------- ")
 
-res_resumed = solve(opt_prob_resumed, Adam(0.001), callback=callback, maxiters=500)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+res_resumed = solve(opt_prob_resumed, Adam(0.002), callback=callback, maxiters=200)
 
 opt_prob_resumed2 = remake(opt_prob_resumed, u0=res_resumed.u)
-res_resumed2 = solve(opt_prob_resumed2, LBFGS(), callback=callback, maxiters=500)
-
-opt_prob_resumed3 = remake(opt_prob_resumed, u0=res_resumed2.u)
-res_resumed3 = solve(opt_prob_resumed3, Adam(0.0025), callback=callback, maxiters=300)
+res_resumed2 = solve(opt_prob_resumed2, BFGS(), callback=callback, maxiters=500)
 
 
 
-# 3rd optimization loop: LBFGS -- 500 iterations
-println("--- Phase 4: BFGS [500 maxiters] ---")
-opt_prob_resumed4 = remake(opt_prob_resumed3, u0=res_resumed3.u)
-res3 = solve(opt_prob_resumed4, BFGS(), callback=callback, maxiters=500)
 
-
+opt_prob_resumed3 = remake(opt_prob_resumed2, u0=res_resumed2.u)
+res_resumed3 = solve(opt_prob_resumed3, BFGS(), callback=callback, maxiters=500)
 
 # -------------------------------------------
 # 1st optimization loop: Adam(0.05) -- 1500 iterations
@@ -253,3 +246,40 @@ p = plot(title="UDE model Vs HH_model", t, V, xlabel="ude_time", ylabel="ude_vol
 plot!(t_steps, true_V, label="HH_model", lw=3, lc=:red, ls=:dashdot)
 # ----
 plot(iter_history, loss_history)
+
+# ----------------
+# 1. Compute final loss
+final_p = res_resumed3.u
+println("Final Loss: ", loss_function(final_p, nothing))
+
+# 2. Simulate the trained UDE model
+prob_eval = ODEProblem(ude_hh, u_0, tspan, final_p)
+sol_eval = solve(prob_eval, Rosenbrock23(), saveat=t_steps)
+
+# 3. Plot comparison
+p_plot = plot(t_steps, sol_eval[1, :], label="UDE Model Prediction", lw=2.5, color=:blue,
+    xlabel="Time (ms)", ylabel="Voltage (mV)", title="Trained UDE vs True HH Data")
+plot!(p_plot, t_steps, true_V, label="True HH Data", lw=2, color=:red, linestyle=:dash)
+display(p_plot)
+jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res_resumed3.u)
+println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
+# ---
+
+# Print a quick summary
+println("Total recorded steps: ", length(loss_history))
+println("Initial Loss: ", first(loss_history))
+println("Final Loss:   ", last(loss_history))
+
+# Plot the Loss History (Log scale is best for viewing loss drops)
+p_loss = plot(
+    iter_history,
+    loss_history,
+    yscale=:log10,                    # Log scale shows steep drops clearly
+    xlabel="Iteration",
+    ylabel="Loss (MSE)",
+    label="Training Loss",
+    lw=2,
+    color=:purple,
+    title="Optimization Loss Curve"
+)
+display(p_loss)

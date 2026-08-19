@@ -3,7 +3,7 @@
 # all important imports 
 using JLD2, DataFrames, CSV, StaticArrays, SciMLSensitivity, Lux, LinearAlgebra, DifferentialEquations, Plots
 
-true_data = data_loaded = CSV.read("C:/Ude_HH_model/ude_models/synthetic_data.csv", DataFrame)
+true_data = data_loaded = CSV.read("C:/Ude_HH_model/ude_models/noisy_data.csv", DataFrame)
 y = Float32.(true_data[!, "n"])
 t_steps = Float32.(true_data[!, "Time"])
 
@@ -30,14 +30,15 @@ t_steps = Float32.(true_data[!, "Time"])
 ture_n = Float32.(true_data[!, "n"])
 
 # 2. Hodgkin-Huxley Model Parameters
-g_na = 120.0f0
-g_k = 36.0f0
-g_l = 0.3f0
-c_m = 1.0f0
-I_ext = 10.0f0
-E_na = 50.0f0
-E_k = -77.0f0
-E_l = -54.4f0
+
+const g_na = 120.0f0
+const g_k = 36.0f0
+const g_l = 0.3f0
+const c_m = 1.0f0
+const I_ext = 10.0f0
+const E_na = 50.0f0
+const E_k = -77.0f0
+const E_l = -54.4f0
 
 # 3. Rate Functions for Gating Variables
 alpha_n(V) = abs(V + 55.0f0) < 1.0f-6 ? 0.1f0 : 0.01f0 * (V + 55.0f0) / (1.0f0 - exp(-(V + 55.0f0) / 10.0f0))
@@ -76,11 +77,11 @@ function ude_hh!(du, u, p, t)
 end
 
 # 7. Initial Conditions & ODE Solution
-u_0 = [-65.0f0, 0.05f0, 0.6f0, 0.317f0]
+const u_0 = [-65.0f0, 0.05f0, 0.6f0, 0.317f0]
 tspan = (0.0f0, 30.0f0)
 
 prob = ODEProblem(ude_hh!, u_0, tspan, ps)
-sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
+sol = solve(prob, Rosenbrock23(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
 
 sol.t
 n = sol[4, :]
@@ -171,7 +172,7 @@ end
 
 pn = load("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2", "p")
 prob = ODEProblem(ude_hh!, u_0, tspan, pn)
-sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
+sol = solve(prob, Rosenbrock23(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
 sol.t
 
 # Filter out small numerical noise (< 0.01 threshold)
