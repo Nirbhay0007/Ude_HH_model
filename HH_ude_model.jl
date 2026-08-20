@@ -6,11 +6,11 @@ BLAS.set_num_threads(Sys.CPU_THREADS)
 # Print confirmation to verify full thread usage
 println("Active Julia Threads: $(Threads.nthreads()) / $(Sys.CPU_THREADS)")
 println("BLAS Threads: $(BLAS.get_num_threads())")
+
 using DataFrames, DifferentialEquations, OrdinaryDiffEq, Plots, CSV, Random, Lux, Optimization
-
-using OptimizationOptimJL: BFGS
-using Zygote, ComponentArrays, SciMLSensitivity, JLD2, StaticArrays, ForwardDiff, StaticArrays
-
+using OptimizationOptimisers            # <--- ADD THIS LINE (provides Adam)
+using OptimizationOptimJL: BFGS  # <--- Added BFGS for Phase 3
+using Zygote, ComponentArrays, SciMLSensitivity, JLD2, StaticArrays, ForwardDiff
 
 
 # loading the data
@@ -140,10 +140,7 @@ tspan = (0.0f0, 30.0f0)
 
 
 
-# inital values and parameters
-
-
-
+# inital values and parameter
 p = [g_na, g_k, g_l, c_m, I_ext, E_na, E_k, E_l, ps, st]
 prob = ODEProblem(ude_hh, u_0, tspan, p)
 
@@ -190,96 +187,70 @@ net = ComponentArray(ps)
 opt_prob = OptimizationProblem(opt, net)
 
 println("Lets start the training ====================================== ")
-
-# using the previous optimized parameters
-
-using JLD2
-
-# load the params 
-checkpoint_path = "C:/Ude_HH_model/ude_models/leaning_parameter.jld2"
-saved_p = JLD2.load(checkpoint_path, "p")
-p_init = ComponentArray(saved_p)
-
-opt = OptimizationFunction(loss_function, AutoForwardDiff())
-opt_prob_resumed = OptimizationProblem(opt, p_init)
-
-println("--------------------- Resuming the trainig --------------------- ")
-
-res_resumed = solve(opt_prob_resumed, Adam(0.002), callback=callback, maxiters=200)
-
-opt_prob_resumed2 = remake(opt_prob_resumed, u0=res_resumed.u)
-res_resumed2 = solve(opt_prob_resumed2, BFGS(), callback=callback, maxiters=500)
-
-
-
-
-opt_prob_resumed3 = remake(opt_prob_resumed2, u0=res_resumed2.u)
-res_resumed3 = solve(opt_prob_resumed3, BFGS(), callback=callback, maxiters=500)
-
 # -------------------------------------------
 # 1st optimization loop: Adam(0.05) -- 1500 iterations
 
 println("--- Phase 1: Adam(0.05) [1500 maxiters] ---")
-res1 = solve(opt_prob, Adam(0.005), callback=callback, maxiters=500)
+res1 = solve(opt_prob, Adam(0.025), callback=callback, maxiters=500)
 
 # 2nd optimization loop: Adam(0.01) -- 1000 iterations
 println("--- Phase 2: Adam(0.01) [1000 maxiters] ---")
 opt_prob2 = remake(opt_prob, u0=res1.u)
-res2 = solve(opt_prob2, Adam(0.0001), callback=callback, maxiters=2000)
+res2 = solve(opt_prob2, Adam(0.005), callback=callback, maxiters=200)
 
 # 3rd optimization loop: LBFGS -- 500 iterations
 println("--- Phase 3: LBFGS [500 maxiters] ---")
 opt_prob3 = remake(opt_prob, u0=res2.u)
-res3 = solve(opt_prob3, LBFGS(), callback=callback, maxiters=500)
+res3 = solve(opt_prob3, LBFGS(), callback=callback, maxiters=200)
 
 # Save final parameters
 jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res3.u)
 println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
 # --------------------------------------------
-pn = load("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2", "p")
-prob = ODEProblem(ude_hh!, u_0, tspan, pn)
-sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
-t = sol.t
-V = sol[1, :]
+# pn = load("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2", "p")
+# prob = ODEProblem(ude_hh!, u_0, tspan, pn)
+# sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-6, saveat=t_steps, sensealg=ForwardDiffSensitivity())
+# t = sol.t
+# V = sol[1, :]
 
-p = plot(title="UDE model Vs HH_model", t, V, xlabel="ude_time", ylabel="ude_volatage", label="ude_model", lw=3, lc=:blue)
-plot!(t_steps, true_V, label="HH_model", lw=3, lc=:red, ls=:dashdot)
-# ----
-plot(iter_history, loss_history)
+# p = plot(title="UDE model Vs HH_model", t, V, xlabel="ude_time", ylabel="ude_volatage", label="ude_model", lw=3, lc=:blue)
+# plot!(t_steps, true_V, label="HH_model", lw=3, lc=:red, ls=:dashdot)
+# # ----
+# plot(iter_history, loss_history)
 
-# ----------------
-# 1. Compute final loss
-final_p = res_resumed3.u
-println("Final Loss: ", loss_function(final_p, nothing))
+# # ----------------
+# # 1. Compute final loss
+# final_p = res_resumed3.u
+# println("Final Loss: ", loss_function(final_p, nothing))
 
-# 2. Simulate the trained UDE model
-prob_eval = ODEProblem(ude_hh, u_0, tspan, final_p)
-sol_eval = solve(prob_eval, Rosenbrock23(), saveat=t_steps)
+# # 2. Simulate the trained UDE model
+# prob_eval = ODEProblem(ude_hh, u_0, tspan, final_p)
+# sol_eval = solve(prob_eval, Rosenbrock23(), saveat=t_steps)
 
-# 3. Plot comparison
-p_plot = plot(t_steps, sol_eval[1, :], label="UDE Model Prediction", lw=2.5, color=:blue,
-    xlabel="Time (ms)", ylabel="Voltage (mV)", title="Trained UDE vs True HH Data")
-plot!(p_plot, t_steps, true_V, label="True HH Data", lw=2, color=:red, linestyle=:dash)
-display(p_plot)
-jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res_resumed3.u)
-println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
-# ---
+# # 3. Plot comparison
+# p_plot = plot(t_steps, sol_eval[1, :], label="UDE Model Prediction", lw=2.5, color=:blue,
+#     xlabel="Time (ms)", ylabel="Voltage (mV)", title="Trained UDE vs True HH Data")
+# plot!(p_plot, t_steps, true_V, label="True HH Data", lw=2, color=:red, linestyle=:dash)
+# display(p_plot)
+# jldsave("C:/Ude_HH_model/ude_models/leaning_parameter2.jld2"; p=res_resumed3.u)
+# println("Training completed and parameters saved to C:/Ude_HH_model/ude_models/leaning_parameter2.jld2")
+# # ---
 
-# Print a quick summary
-println("Total recorded steps: ", length(loss_history))
-println("Initial Loss: ", first(loss_history))
-println("Final Loss:   ", last(loss_history))
+# # Print a quick summary
+# println("Total recorded steps: ", length(loss_history))
+# println("Initial Loss: ", first(loss_history))
+# println("Final Loss:   ", last(loss_history))
 
-# Plot the Loss History (Log scale is best for viewing loss drops)
-p_loss = plot(
-    iter_history,
-    loss_history,
-    yscale=:log10,                    # Log scale shows steep drops clearly
-    xlabel="Iteration",
-    ylabel="Loss (MSE)",
-    label="Training Loss",
-    lw=2,
-    color=:purple,
-    title="Optimization Loss Curve"
-)
-display(p_loss)
+# # Plot the Loss History (Log scale is best for viewing loss drops)
+# p_loss = plot(
+#     iter_history,
+#     loss_history,
+#     yscale=:log10,                    # Log scale shows steep drops clearly
+#     xlabel="Iteration",
+#     ylabel="Loss (MSE)",
+#     label="Training Loss",
+#     lw=2,
+#     color=:purple,
+#     title="Optimization Loss Curve"
+# )
+# display(p_loss)

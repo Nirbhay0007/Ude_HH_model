@@ -12,6 +12,9 @@ t_steps = Float32.(true_data[!, "Time"])
 rng = Random.seed!(42)
 
 
+
+
+
 nn = Chain(Dense(1 => 32),
     Dense(32 => 32, tanh),
     Dense(32 => 1, sigmoid))
