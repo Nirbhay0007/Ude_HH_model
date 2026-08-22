@@ -148,7 +148,8 @@ col_norms = [norm(ϕ[:, i]) for i in 1:size(ϕ, 2)]
 ϕ_std = ϕ ./ col_norms'
 
 
-β_std = Variable(num_basis)
+using Variable
+β_std = Variable(4)
 problem = minimize(sumsquares(ϕ_std * β_std - y) + λ * norm(β_std, 1))
 
 # Solve using SCS solver
